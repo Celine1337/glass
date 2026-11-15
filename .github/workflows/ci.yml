@@ -30,7 +30,7 @@ jobs:
             libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxinerama-dev libgl1-mesa-dev libegl1-mesa-dev \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad ffmpeg pipewire
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly ffmpeg pipewire
 
       - name: Build + unit tests (Windows)
         if: runner.os == 'Windows'
