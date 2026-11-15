@@ -51,7 +51,6 @@ impl PortalHandle {
 pub struct WaylandStart {
     pub rx: Receiver<Result<PortalReady, String>>,
     pub handle: PortalHandle,
-    pub spec: CaptureSpec,
     pub out: PathBuf,
     pub encoder: String,
     pub h264parse: bool,
@@ -97,7 +96,6 @@ async fn portal_flow() -> Result<(Session<Screencast>, OwnedFd, u32), String> {
 /// Spawn the portal thread. The UI shows a "requesting permission" state until
 /// the ready channel yields the PipeWire fd + node (or an error / cancel).
 pub fn start_wayland(
-    spec: CaptureSpec,
     out: PathBuf,
     encoder: String,
     h264parse: bool,
@@ -144,7 +142,6 @@ pub fn start_wayland(
             stop_tx,
             _join: join,
         },
-        spec,
         out,
         encoder,
         h264parse,
@@ -159,7 +156,6 @@ pub fn start_wayland(
 pub fn finish_wayland(
     ready: PortalReady,
     handle: PortalHandle,
-    spec: CaptureSpec,
     out: PathBuf,
     encoder: String,
     h264parse: bool,
@@ -167,23 +163,23 @@ pub fn finish_wayland(
     let args = pipeline::gst_wayland_args(
         ready.node,
         pipeline::PIPEWIRE_CHILD_FD,
-        spec,
         &encoder,
         &out,
         h264parse,
     );
+    let log = out.with_extension("log");
     let mut cmd = Command::new(&args[0]);
     cmd.args(&args[1..]);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr_log(&log));
     map_fd_to_child(&mut cmd, &ready.fd);
     let child = cmd
         .spawn()
         .map_err(|e| format!("could not start gst-launch-1.0: {e}"))?;
     // The child owns a duplicate at fd 3; the parent copy is no longer needed.
     drop(ready.fd);
-    Ok(Recording::new(child, out, Backend::Gst).with_portal(handle))
+    Ok(Recording::new(child, out, Backend::Gst, log).with_portal(handle))
 }
 
 /// X11: full-screen `ximagesrc`, no portal needed.
@@ -194,15 +190,25 @@ pub fn start_x11(
     h264parse: bool,
 ) -> Result<Recording, String> {
     let args = pipeline::gst_x11_args(spec, &encoder, &out, h264parse);
+    let log = out.with_extension("log");
     let mut cmd = Command::new(&args[0]);
     cmd.args(&args[1..]);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr_log(&log));
     let child = cmd
         .spawn()
         .map_err(|e| format!("could not start gst-launch-1.0: {e}"))?;
-    Ok(Recording::new(child, out, Backend::Gst))
+    Ok(Recording::new(child, out, Backend::Gst, log))
+}
+
+/// Child stderr goes to a log file beside the recording so a failed capture
+/// is diagnosable instead of silent. Falls back to null if the file cannot
+/// be created (recording must not fail because of logging).
+fn stderr_log(log: &std::path::Path) -> Stdio {
+    std::fs::File::create(log)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null())
 }
 
 /// Duplicate `fd` onto child fd 3 in the forked child, before `exec`.

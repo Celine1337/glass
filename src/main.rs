@@ -129,16 +129,16 @@ fn dump_pipeline(args: &[String]) -> ExitCode {
     let out = PathBuf::from(&args[4]);
     let spec = pipeline::CaptureSpec::new(width, height, hz);
     let argv = match platform {
-        "wayland" => pipeline::gst_wayland_args(
-            42,
-            pipeline::PIPEWIRE_CHILD_FD,
-            spec,
-            "x264enc",
-            &out,
-            false,
-        ),
+        "wayland" => {
+            pipeline::gst_wayland_args(42, pipeline::PIPEWIRE_CHILD_FD, "x264enc", &out, false)
+        }
         "x11" => pipeline::gst_x11_args(spec, "x264enc", &out, false),
-        "windows" => pipeline::ffmpeg_windows_args(spec, "libx264", &out, "ddagrab"),
+        "windows" => pipeline::ffmpeg_windows_args(
+            spec,
+            "libx264",
+            &out,
+            pipeline::windows_backend_for(None),
+        ),
         _ => {
             eprintln!("unknown platform: {platform} (use wayland|x11|windows)");
             return ExitCode::FAILURE;

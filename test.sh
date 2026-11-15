@@ -30,7 +30,7 @@ if cargo test >/dev/null 2>&1; then ok "unit tests"; else fail "unit tests"; fi
 
 echo "[3] glass --version"
 V="$("$BIN" --version)"
-if [ "$V" = "glass 0.1.0" ]; then ok "--version prints '$V'"; else fail "--version got '$V'"; fi
+if [ "$V" = "glass 0.1.1" ]; then ok "--version prints '$V'"; else fail "--version got '$V'"; fi
 
 echo "[4] glass --help"
 if "$BIN" --help >/dev/null 2>&1; then ok "--help exits 0"; else fail "--help"; fi
@@ -65,10 +65,10 @@ echo "[10] ffprobe: ffmpeg codec is h264"
 C2="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=nw=1:nk=1 "$TMP/ff.mp4")"
 if [ "$C2" = "h264" ]; then ok "ffmpeg codec=h264"; else fail "ffmpeg codec '$C2'"; fi
 
-echo "[11] Wayland pipeline builder (pipewiresrc + native res + Hz)"
+echo "[11] Wayland pipeline builder (pipewiresrc, native rate passthrough)"
 W="$("$BIN" --dump-pipeline wayland 3840 2160 144 "$TMP/o.mp4")"
-if grep -q 'pipewiresrc fd=3' <<<"$W" && grep -q '3840x2160' <<<"$W" && grep -q 'framerate=144/1' <<<"$W" && grep -q 'mp4mux' <<<"$W"; then
-  ok "wayland pipeline"
+if grep -q 'pipewiresrc fd=3' <<<"$W" && grep -q '3840x2160' <<<"$W" && grep -q 'mp4mux' <<<"$W" && ! grep -q 'video/x-raw,framerate' <<<"$W"; then
+  ok "wayland pipeline (no strict framerate filter)"
 else
   fail "wayland pipeline: $W"
 fi
@@ -81,9 +81,9 @@ else
   fail "x11 pipeline: $X"
 fi
 
-echo "[13] Windows pipeline builder (ddagrab + native res + Hz)"
+echo "[13] Windows pipeline builder (gdigrab default + native res + Hz)"
 N="$("$BIN" --dump-pipeline windows 2560 1440 144 "$TMP/o.mp4")"
-if grep -q 'ddagrab' <<<"$N" && grep -q '2560x1440' <<<"$N" && grep -q 'framerate 144' <<<"$N"; then
+if grep -q 'gdigrab' <<<"$N" && grep -q '2560x1440' <<<"$N" && grep -q 'framerate 144' <<<"$N"; then
   ok "windows pipeline"
 else
   fail "windows pipeline: $N"

@@ -10,7 +10,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{
-    self, Align, Align2, Color32, FontId, Layout, Margin, Rect, Response, RichText, CornerRadius,
+    self, Align, Align2, Color32, CornerRadius, FontId, Layout, Margin, Rect, Response, RichText,
     Sense, Stroke, Ui,
 };
 
@@ -151,7 +151,7 @@ impl GlassApp {
         #[cfg(unix)]
         {
             if capture::linux::is_wayland() {
-                match capture::linux::start_wayland(self.spec, out, self.gst_encoder.clone(), self.h264parse) {
+                match capture::linux::start_wayland(out, self.gst_encoder.clone(), self.h264parse) {
                     Ok(ws) => {
                         self.portal_pending = Some(ws);
                         self.phase = Phase::Requesting;
@@ -159,7 +159,12 @@ impl GlassApp {
                     Err(e) => self.phase = Phase::Error(e),
                 }
             } else {
-                match capture::linux::start_x11(self.spec, out, self.gst_encoder.clone(), self.h264parse) {
+                match capture::linux::start_x11(
+                    self.spec,
+                    out,
+                    self.gst_encoder.clone(),
+                    self.h264parse,
+                ) {
                     Ok(rec) => self.enter_recording(rec),
                     Err(e) => self.phase = Phase::Error(e),
                 }
@@ -213,7 +218,6 @@ impl GlassApp {
                         match capture::linux::finish_wayland(
                             ready,
                             ws.handle,
-                            ws.spec,
                             ws.out,
                             ws.encoder,
                             ws.h264parse,
@@ -326,7 +330,11 @@ impl GlassApp {
         };
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BG).inner_margin(Margin::symmetric(24, 20)))
+            .frame(
+                egui::Frame::new()
+                    .fill(BG)
+                    .inner_margin(Margin::symmetric(24, 20)),
+            )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
 
@@ -338,7 +346,11 @@ impl GlassApp {
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.add_space(2.0);
-                        let label = if self.reduce_motion { "motion off" } else { "motion on" };
+                        let label = if self.reduce_motion {
+                            "motion off"
+                        } else {
+                            "motion on"
+                        };
                         let btn = pill_button(ui, label);
                         if btn.clicked() {
                             action = Some(Action::ToggleMotion);
@@ -359,11 +371,7 @@ impl GlassApp {
 
                 ui.add_space(2.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(
-                        RichText::new(state_caption(&phase))
-                            .size(12.0)
-                            .color(MUTED),
-                    );
+                    ui.label(RichText::new(state_caption(&phase)).size(12.0).color(MUTED));
                 });
 
                 ui.add_space(8.0);
@@ -432,12 +440,7 @@ impl GlassApp {
                             )
                         };
                         ui.vertical_centered(|ui| {
-                            ui.label(
-                                RichText::new(caption)
-                                    .monospace()
-                                    .size(12.0)
-                                    .color(MUTED),
-                            );
+                            ui.label(RichText::new(caption).monospace().size(12.0).color(MUTED));
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
                                 if pill_button(ui, "Open file").clicked() {
@@ -530,7 +533,11 @@ impl GlassApp {
         };
         painter.circle_stroke(center, 64.0, Stroke::new(2.5_f32, ring));
         if response.has_focus() {
-            painter.circle_stroke(center, 71.0, Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.5)));
+            painter.circle_stroke(
+                center,
+                71.0,
+                Stroke::new(1.5_f32, ACCENT.gamma_multiply(0.5)),
+            );
         }
 
         if busy {

@@ -27,31 +27,27 @@ pub const PIPEWIRE_CHILD_FD: i32 = 3;
 /// GStreamer pipeline for Wayland: portal PipeWire node -> H.264 -> MP4.
 ///
 /// `gst-launch-1.0 -e` sends EOS on SIGINT so `mp4mux` finalizes the file.
-/// `h264parse` is inserted only when available (it converts byte-stream to AVC
-/// for some hardware encoders); `x264enc ! mp4mux` also works without it.
+/// No framerate capsfilter: the portal stream already runs at the monitor's
+/// real rate (often fractional, e.g. 60.0079 Hz), and a fixed `framerate=N/1`
+/// filter fails to negotiate against it, killing the pipeline before it
+/// writes anything. `h264parse` is inserted only when available (it converts
+/// byte-stream to AVC for some hardware encoders); `x264enc ! mp4mux` also
+/// works without it.
 pub fn gst_wayland_args(
     node: u32,
     fd: i32,
-    spec: CaptureSpec,
     encoder: &str,
     out: &Path,
     h264parse: bool,
 ) -> Vec<String> {
     let mut a = vec!["gst-launch-1.0".to_string(), "-e".to_string()];
     a.push(format!("pipewiresrc fd={fd} path={node}"));
-    a.push("!".to_string());
-    a.push(format!("video/x-raw,framerate={}/1", spec.hz));
     gst_tail(&mut a, encoder, h264parse, out);
     a
 }
 
 /// GStreamer pipeline for X11: full-screen `ximagesrc` -> H.264 -> MP4.
-pub fn gst_x11_args(
-    spec: CaptureSpec,
-    encoder: &str,
-    out: &Path,
-    h264parse: bool,
-) -> Vec<String> {
+pub fn gst_x11_args(spec: CaptureSpec, encoder: &str, out: &Path, h264parse: bool) -> Vec<String> {
     let mut a = vec!["gst-launch-1.0".to_string(), "-e".to_string()];
     a.push("ximagesrc use-damage=false".to_string());
     a.push("!".to_string());
@@ -76,7 +72,10 @@ fn gst_tail(a: &mut Vec<String>, encoder: &str, h264parse: bool, out: &Path) {
     a.push(format!("filesink location={}", out.display()));
 }
 
-/// FFmpeg command for Windows: Desktop Duplication (`ddagrab`) or `gdigrab`.
+/// FFmpeg command for Windows: `gdigrab` by default, `ddagrab` (Desktop
+/// Duplication) opt-in. ddagrab outputs D3D11 textures: NVENC/AMF consume
+/// them directly, every other encoder needs `hwdownload` first or ffmpeg
+/// aborts with "Impossible to convert between the formats".
 pub fn ffmpeg_windows_args(
     spec: CaptureSpec,
     encoder: &str,
@@ -97,15 +96,36 @@ pub fn ffmpeg_windows_args(
     a.push(format!("{}x{}", spec.width, spec.height));
     a.push("-i".to_string());
     a.push("desktop".to_string());
+    let d3d11_native = backend == "ddagrab" && matches!(encoder, "h264_nvenc" | "h264_amf");
+    if backend == "ddagrab" && !d3d11_native {
+        a.push("-vf".to_string());
+        a.push("hwdownload,format=bgra".to_string());
+    }
     a.push("-c:v".to_string());
     a.push(encoder.to_string());
     a.extend(ffmpeg_encoder_params(encoder));
-    a.push("-pix_fmt".to_string());
-    a.push("yuv420p".to_string());
+    if !d3d11_native {
+        a.push("-pix_fmt".to_string());
+        a.push("yuv420p".to_string());
+    }
     a.push("-movflags".to_string());
     a.push("+faststart".to_string());
     a.push(out.display().to_string());
     a
+}
+
+/// Windows capture backend choice: `gdigrab` is the reliable default (BGRA
+/// frames every encoder accepts); `ddagrab` is opt-in for the zero-copy GPU
+/// path. Pure + unit-tested.
+pub fn windows_backend_for(value: Option<&str>) -> &'static str {
+    if value
+        .map(|v| v.eq_ignore_ascii_case("ddagrab"))
+        .unwrap_or(false)
+    {
+        "ddagrab"
+    } else {
+        "gdigrab"
+    }
 }
 
 /// GStreamer encoder element(s) with low-latency tuning where relevant.
@@ -143,20 +163,30 @@ mod tests {
 
     #[test]
     fn wayland_uses_pipewiresrc_and_child_fd() {
-        let a = gst_wayland_args(42, PIPEWIRE_CHILD_FD, spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
+        let a = gst_wayland_args(
+            42,
+            PIPEWIRE_CHILD_FD,
+            "x264enc",
+            Path::new("/tmp/o.mp4"),
+            false,
+        );
         let s = render_command(&a);
         assert!(s.contains("pipewiresrc fd=3 path=42"));
     }
 
     #[test]
-    fn wayland_sets_native_framerate() {
-        let a = gst_wayland_args(42, 3, spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
-        assert!(render_command(&a).contains("framerate=144/1"));
+    fn wayland_has_no_strict_framerate_filter() {
+        // The portal stream already carries the monitor's real (often
+        // fractional, e.g. 60.0079 Hz) rate. A fixed capsfilter like
+        // framerate=60/1 cannot negotiate against it and kills the pipeline
+        // before a single frame is written.
+        let a = gst_wayland_args(42, 3, "x264enc", Path::new("/tmp/o.mp4"), false);
+        assert!(!render_command(&a).contains("framerate="));
     }
 
     #[test]
     fn wayland_muxes_to_mp4() {
-        let a = gst_wayland_args(42, 3, spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
+        let a = gst_wayland_args(42, 3, "x264enc", Path::new("/tmp/o.mp4"), false);
         let s = render_command(&a);
         assert!(s.contains("mp4mux"));
         assert!(s.contains("filesink location=/tmp/o.mp4"));
@@ -164,7 +194,7 @@ mod tests {
 
     #[test]
     fn wayland_eos_on_shutdown_flag() {
-        let a = gst_wayland_args(42, 3, spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
+        let a = gst_wayland_args(42, 3, "x264enc", Path::new("/tmp/o.mp4"), false);
         assert_eq!(a[1], "-e");
     }
 
@@ -178,7 +208,7 @@ mod tests {
 
     #[test]
     fn hardware_gst_encoder_is_plain_element() {
-        let a = gst_wayland_args(42, 3, spec(), "vah264enc", Path::new("/tmp/o.mp4"), false);
+        let a = gst_wayland_args(42, 3, "vah264enc", Path::new("/tmp/o.mp4"), false);
         let s = render_command(&a);
         assert!(s.contains("vah264enc"));
         assert!(!s.contains("speed-preset"));
@@ -193,13 +223,13 @@ mod tests {
 
     #[test]
     fn h264parse_inserted_when_available() {
-        let a = gst_wayland_args(42, 3, spec(), "h264_nvenc", Path::new("/tmp/o.mp4"), true);
+        let a = gst_wayland_args(42, 3, "h264_nvenc", Path::new("/tmp/o.mp4"), true);
         assert!(render_command(&a).contains("h264parse"));
     }
 
     #[test]
     fn h264parse_omitted_when_absent() {
-        let a = gst_wayland_args(42, 3, spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
+        let a = gst_wayland_args(42, 3, "x264enc", Path::new("/tmp/o.mp4"), false);
         assert!(!render_command(&a).contains("h264parse"));
     }
 
@@ -238,5 +268,44 @@ mod tests {
     fn windows_libx264_ultrafast() {
         let a = ffmpeg_windows_args(spec(), "libx264", Path::new("o.mp4"), "ddagrab");
         assert!(render_command(&a).contains("-preset ultrafast"));
+    }
+
+    #[test]
+    fn ddagrab_nvenc_keeps_d3d11_no_pixfmt() {
+        // ddagrab outputs D3D11 textures; forcing yuv420p makes ffmpeg fail
+        // with "Impossible to convert between the formats" (ShareX #7315).
+        // NVENC/AMF accept the textures directly.
+        let a = ffmpeg_windows_args(spec(), "h264_nvenc", Path::new("o.mp4"), "ddagrab");
+        assert!(!render_command(&a).contains("-pix_fmt"));
+        let a = ffmpeg_windows_args(spec(), "h264_amf", Path::new("o.mp4"), "ddagrab");
+        assert!(!render_command(&a).contains("-pix_fmt"));
+    }
+
+    #[test]
+    fn ddagrab_software_downloads_frames() {
+        // Software encoders cannot read D3D11 textures: download to system
+        // memory first, then the usual yuv420p conversion applies.
+        let a = ffmpeg_windows_args(spec(), "libx264", Path::new("o.mp4"), "ddagrab");
+        assert!(render_command(&a).contains("-vf hwdownload,format=bgra"));
+    }
+
+    #[test]
+    fn gdigrab_software_needs_no_hwdownload() {
+        let a = ffmpeg_windows_args(spec(), "libx264", Path::new("o.mp4"), "gdigrab");
+        let s = render_command(&a);
+        assert!(!s.contains("hwdownload"));
+        assert!(s.contains("-pix_fmt yuv420p"));
+    }
+
+    #[test]
+    fn windows_backend_defaults_to_gdigrab() {
+        assert_eq!(windows_backend_for(None), "gdigrab");
+        assert_eq!(windows_backend_for(Some("bogus")), "gdigrab");
+    }
+
+    #[test]
+    fn windows_backend_ddagrab_is_opt_in() {
+        assert_eq!(windows_backend_for(Some("ddagrab")), "ddagrab");
+        assert_eq!(windows_backend_for(Some("DDAGrab")), "ddagrab");
     }
 }

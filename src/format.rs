@@ -112,7 +112,10 @@ mod tests {
 
     #[test]
     fn res_hz_uses_multiplication_sign() {
-        assert_eq!(format_res_hz(3840, 2160, 144), "3840\u{00d7}2160 \u{00b7} 144 Hz");
+        assert_eq!(
+            format_res_hz(3840, 2160, 144),
+            "3840\u{00d7}2160 \u{00b7} 144 Hz"
+        );
     }
 
     #[test]
@@ -123,13 +126,19 @@ mod tests {
     #[test]
     fn filename_known_timestamp() {
         // 1_700_000_000 == 2023-11-14 22:13:20 UTC
-        assert_eq!(timestamp_filename(1_700_000_000), "glass-20231114-221320.mp4");
+        assert_eq!(
+            timestamp_filename(1_700_000_000),
+            "glass-20231114-221320.mp4"
+        );
     }
 
     #[test]
     fn filename_leap_day() {
         // 1_709_164_800 == 2024-02-29 00:00:00 UTC
-        assert_eq!(timestamp_filename(1_709_164_800), "glass-20240229-000000.mp4");
+        assert_eq!(
+            timestamp_filename(1_709_164_800),
+            "glass-20240229-000000.mp4"
+        );
     }
 
     #[test]

@@ -8,8 +8,7 @@ use std::process::{Command, Stdio};
 pub const GST_ENCODERS: &[&str] = &["vah264enc", "nvh264enc", "x264enc"];
 
 /// FFmpeg H.264 encoders, best (hardware) first.
-pub const FFMPEG_ENCODERS: &[&str] =
-    &["h264_nvenc", "h264_amf", "h264_qsv", "h264_mf", "libx264"];
+pub const FFMPEG_ENCODERS: &[&str] = &["h264_nvenc", "h264_amf", "h264_qsv", "h264_mf", "libx264"];
 
 /// Parse `ffmpeg -hide_banner -encoders` output into encoder names.
 ///
@@ -48,10 +47,7 @@ pub fn parse_ffmpeg_encoders(output: &str) -> Vec<String> {
 
 /// First candidate present in `available`, preserving preference order.
 /// Pure + unit-tested.
-pub fn select_first_available<'a>(
-    candidates: &[&'a str],
-    available: &[String],
-) -> Option<&'a str> {
+pub fn select_first_available<'a>(candidates: &[&'a str], available: &[String]) -> Option<&'a str> {
     candidates
         .iter()
         .copied()
@@ -89,9 +85,7 @@ pub fn probe_ffmpeg() -> Vec<String> {
         .stderr(Stdio::null())
         .output();
     match output {
-        Ok(o) if o.status.success() => {
-            parse_ffmpeg_encoders(&String::from_utf8_lossy(&o.stdout))
-        }
+        Ok(o) if o.status.success() => parse_ffmpeg_encoders(&String::from_utf8_lossy(&o.stdout)),
         _ => Vec::new(),
     }
 }
@@ -180,7 +174,10 @@ Encoders:
     #[test]
     fn gst_preference_order() {
         let available = vec!["x264enc".to_string(), "vah264enc".to_string()];
-        assert_eq!(select_first_available(GST_ENCODERS, &available), Some("vah264enc"));
+        assert_eq!(
+            select_first_available(GST_ENCODERS, &available),
+            Some("vah264enc")
+        );
     }
 
     #[test]

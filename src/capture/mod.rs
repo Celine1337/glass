@@ -10,7 +10,7 @@ pub mod linux;
 #[cfg(windows)]
 pub mod windows;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus};
 use std::time::Duration;
 
@@ -28,16 +28,19 @@ pub struct Recording {
     child: Child,
     output: PathBuf,
     backend: Backend,
+    /// Child stderr is captured here so failures are diagnosable.
+    log: PathBuf,
     #[cfg(unix)]
     portal: Option<linux::PortalHandle>,
 }
 
 impl Recording {
-    pub fn new(child: Child, output: PathBuf, backend: Backend) -> Self {
+    pub fn new(child: Child, output: PathBuf, backend: Backend, log: PathBuf) -> Self {
         Self {
             child,
             output,
             backend,
+            log,
             #[cfg(unix)]
             portal: None,
         }
@@ -87,8 +90,8 @@ impl Recording {
             }
         }
 
-        match child::wait_with_timeout(&mut self.child, Duration::from_secs(12)) {
-            Ok(Some(_)) => {}
+        let status = match child::wait_with_timeout(&mut self.child, Duration::from_secs(12)) {
+            Ok(Some(status)) => Some(status),
             Ok(None) => {
                 // Still running: escalate gracefully, then force.
                 #[cfg(unix)]
@@ -110,15 +113,120 @@ impl Recording {
                 {
                     let _ = self.child.kill();
                 }
-                let _ = self.child.wait();
+                self.child.wait().ok()
             }
             Err(e) => return Err(format!("could not stop recorder: {e}")),
-        }
+        };
 
-        if self.output.exists() {
-            Ok(self.output.clone())
-        } else {
-            Err("recording finished but produced no file".to_string())
+        // A zero-byte MP4 is as useless as a missing one (muxer never ran).
+        match std::fs::metadata(&self.output) {
+            Ok(m) if m.len() > 0 => Ok(self.output.clone()),
+            _ => Err(failure_message(status, &self.log)),
         }
+    }
+}
+
+/// Actionable failure: exit code plus the tail of the child's stderr log.
+fn failure_message(status: Option<ExitStatus>, log: &Path) -> String {
+    let code = match status.and_then(|s| s.code()) {
+        Some(c) => c.to_string(),
+        None => "signal".to_string(),
+    };
+    let content = std::fs::read_to_string(log).unwrap_or_default();
+    failure_message_from_parts(&code, &content)
+}
+
+fn failure_message_from_parts(code: &str, log_content: &str) -> String {
+    let tail = log_tail(log_content, 300);
+    if tail.is_empty() {
+        format!("recorder exited (code {code}) before writing any video")
+    } else {
+        format!("recorder failed (code {code}): {tail}")
+    }
+}
+
+/// Last `max` chars of the log, whitespace flattened for the single-line UI.
+fn log_tail(content: &str, max: usize) -> String {
+    let flat = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let count = flat.chars().count();
+    if count <= max {
+        flat
+    } else {
+        flat.chars().skip(count - max).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_message_includes_code_and_log_tail() {
+        let msg = failure_message_from_parts("1", "ERROR: not-negotiated\nstream error");
+        assert!(msg.contains("code 1"));
+        assert!(msg.contains("not-negotiated"));
+    }
+
+    #[test]
+    fn failure_message_without_log_says_no_video() {
+        let msg = failure_message_from_parts("1", "  \n");
+        assert!(msg.contains("before writing any video"));
+    }
+
+    #[test]
+    fn log_tail_keeps_last_chars() {
+        let tail = log_tail("aaaa bbbb cccc", 9);
+        assert_eq!(tail, "bbbb cccc");
+    }
+
+    #[cfg(unix)]
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("glass-mod-test-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[cfg(unix)]
+    fn dead_child() -> Child {
+        std::process::Command::new("true")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn true")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_reports_stderr_when_no_file() {
+        let dir = temp_dir("nofile");
+        let log = dir.join("rec.log");
+        std::fs::write(&log, "ERROR: not-negotiated\n").expect("write log");
+        let rec = Recording::new(dead_child(), dir.join("missing.mp4"), Backend::Gst, log);
+        let err = rec.finish().expect_err("must fail without a file");
+        assert!(err.contains("not-negotiated"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_rejects_empty_file() {
+        let dir = temp_dir("empty");
+        let out = dir.join("rec.mp4");
+        std::fs::write(&out, b"").expect("write empty");
+        let rec = Recording::new(dead_child(), out, Backend::Gst, dir.join("rec.log"));
+        assert!(rec.finish().is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finish_returns_path_for_nonempty_file() {
+        let dir = temp_dir("ok");
+        let out = dir.join("rec.mp4");
+        std::fs::write(&out, b"video bytes").expect("write");
+        let rec = Recording::new(dead_child(), out.clone(), Backend::Gst, dir.join("rec.log"));
+        assert_eq!(rec.finish().expect("success"), out);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
