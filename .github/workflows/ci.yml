@@ -38,6 +38,6 @@ jobs:
           cargo build --release
           cargo test
 
-      - name: Full suite (Linux: build, tests, synthetic encode, pipelines)
+      - name: "Full suite (Linux: build, tests, synthetic encode, pipelines)"
         if: runner.os == 'Linux'
         run: ./test.sh
