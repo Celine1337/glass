@@ -41,7 +41,9 @@ pub fn gst_wayland_args(
     h264parse: bool,
 ) -> Vec<String> {
     let mut a = vec!["gst-launch-1.0".to_string(), "-e".to_string()];
-    a.push(format!("pipewiresrc fd={fd} path={node}"));
+    a.push("pipewiresrc".to_string());
+    a.push(format!("fd={fd}"));
+    a.push(format!("path={node}"));
     gst_tail(&mut a, encoder, h264parse, out);
     a
 }
@@ -49,7 +51,8 @@ pub fn gst_wayland_args(
 /// GStreamer pipeline for X11: full-screen `ximagesrc` -> H.264 -> MP4.
 pub fn gst_x11_args(spec: CaptureSpec, encoder: &str, out: &Path, h264parse: bool) -> Vec<String> {
     let mut a = vec!["gst-launch-1.0".to_string(), "-e".to_string()];
-    a.push("ximagesrc use-damage=false".to_string());
+    a.push("ximagesrc".to_string());
+    a.push("use-damage=false".to_string());
     a.push("!".to_string());
     a.push(format!("video/x-raw,framerate={}/1", spec.hz));
     gst_tail(&mut a, encoder, h264parse, out);
@@ -131,7 +134,11 @@ pub fn windows_backend_for(value: Option<&str>) -> &'static str {
 /// GStreamer encoder element(s) with low-latency tuning where relevant.
 fn gst_encoder_elements(encoder: &str) -> Vec<String> {
     match encoder {
-        "x264enc" => vec!["x264enc speed-preset=ultrafast tune=zerolatency".to_string()],
+        "x264enc" => vec![
+            "x264enc".to_string(),
+            "speed-preset=ultrafast".to_string(),
+            "tune=zerolatency".to_string(),
+        ],
         other => vec![other.to_string()],
     }
 }
@@ -159,6 +166,42 @@ mod tests {
 
     fn spec() -> CaptureSpec {
         CaptureSpec::new(3840, 2160, 144)
+    }
+
+    /// gst-launch parses argv token-by-token: every element, property and `!`
+    /// must be its own argument. A bundled token like "pipewiresrc fd=3
+    /// path=42" is a syntax error. (Shell `eval` masks this because the shell
+    /// re-splits on whitespace — the app's spawned child does not.)
+    fn assert_gst_tokens(argv: &[String]) {
+        for t in argv {
+            if t.starts_with("filesink location=") {
+                continue; // the path value itself may contain spaces
+            }
+            assert!(
+                !t.contains(char::is_whitespace),
+                "bundled argv token: {t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wayland_argv_is_tokenized_for_gst_launch() {
+        let a = gst_wayland_args(42, 3, "x264enc", Path::new("/tmp/o.mp4"), true);
+        assert_gst_tokens(&a);
+        assert!(a.iter().any(|t| t == "pipewiresrc"));
+        assert!(a.iter().any(|t| t == "fd=3"));
+        assert!(a.iter().any(|t| t == "path=42"));
+        assert!(a.iter().any(|t| t == "x264enc"));
+        assert!(a.iter().any(|t| t == "speed-preset=ultrafast"));
+        assert!(a.iter().any(|t| t == "tune=zerolatency"));
+    }
+
+    #[test]
+    fn x11_argv_is_tokenized_for_gst_launch() {
+        let a = gst_x11_args(spec(), "x264enc", Path::new("/tmp/o.mp4"), false);
+        assert_gst_tokens(&a);
+        assert!(a.iter().any(|t| t == "ximagesrc"));
+        assert!(a.iter().any(|t| t == "use-damage=false"));
     }
 
     #[test]

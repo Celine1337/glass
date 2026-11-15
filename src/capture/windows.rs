@@ -32,15 +32,12 @@ fn ffmpeg_program() -> PathBuf {
 pub fn start(spec: CaptureSpec, out: PathBuf, encoder: String) -> Result<Recording, String> {
     let args = pipeline::ffmpeg_windows_args(spec, &encoder, &out, backend());
     let log = out.with_extension("log");
-    let stderr = std::fs::File::create(&log)
-        .map(Stdio::from)
-        .unwrap_or_else(|_| Stdio::null());
     let mut cmd = Command::new(ffmpeg_program());
     cmd.args(&args[1..]);
     // stdin stays piped so we can send `q` for a clean finalize on stop.
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(stderr);
+        .stderr(crate::capture::stderr_log(&log, &args));
     let child = cmd
         .spawn()
         .map_err(|e| format!("could not start ffmpeg: {e}"))?;

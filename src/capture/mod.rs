@@ -11,10 +11,24 @@ pub mod linux;
 pub mod windows;
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
+use std::process::{Child, ExitStatus, Stdio};
 use std::time::Duration;
 
 use crate::child;
+
+/// Child stderr goes to a log file beside the recording, prefixed with the
+/// exact command line so a failed capture is diagnosable. Falls back to null
+/// if the file cannot be created (recording must not fail because of logging).
+pub(crate) fn stderr_log(log: &Path, argv: &[String]) -> Stdio {
+    match std::fs::File::create(log) {
+        Ok(mut f) => {
+            use std::io::Write;
+            let _ = writeln!(f, "$ {}", argv.join(" "));
+            Stdio::from(f)
+        }
+        Err(_) => Stdio::null(),
+    }
+}
 
 /// Which native backend is doing the capture/encode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,11 +193,21 @@ mod tests {
         assert_eq!(tail, "bbbb cccc");
     }
 
-    #[cfg(unix)]
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("glass-mod-test-{}-{tag}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir
+    }
+
+    #[test]
+    fn stderr_log_prefixes_exact_command_line() {
+        let dir = temp_dir("argvlog");
+        let log = dir.join("cmd.log");
+        let argv = vec!["gst-launch-1.0".to_string(), "-e".to_string()];
+        let _stdio = stderr_log(&log, &argv);
+        let content = std::fs::read_to_string(&log).expect("read log");
+        assert!(content.starts_with("$ gst-launch-1.0 -e"), "got: {content}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

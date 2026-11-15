@@ -30,7 +30,7 @@ if cargo test >/dev/null 2>&1; then ok "unit tests"; else fail "unit tests"; fi
 
 echo "[3] glass --version"
 V="$("$BIN" --version)"
-if [ "$V" = "glass 0.1.1" ]; then ok "--version prints '$V'"; else fail "--version got '$V'"; fi
+if [ "$V" = "glass 0.1.2" ]; then ok "--version prints '$V'"; else fail "--version got '$V'"; fi
 
 echo "[4] glass --help"
 if "$BIN" --help >/dev/null 2>&1; then ok "--help exits 0"; else fail "--help"; fi

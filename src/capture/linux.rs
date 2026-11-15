@@ -172,7 +172,7 @@ pub fn finish_wayland(
     cmd.args(&args[1..]);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(stderr_log(&log));
+        .stderr(crate::capture::stderr_log(&log, &args));
     map_fd_to_child(&mut cmd, &ready.fd);
     let child = cmd
         .spawn()
@@ -195,20 +195,11 @@ pub fn start_x11(
     cmd.args(&args[1..]);
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(stderr_log(&log));
+        .stderr(crate::capture::stderr_log(&log, &args));
     let child = cmd
         .spawn()
         .map_err(|e| format!("could not start gst-launch-1.0: {e}"))?;
     Ok(Recording::new(child, out, Backend::Gst, log))
-}
-
-/// Child stderr goes to a log file beside the recording so a failed capture
-/// is diagnosable instead of silent. Falls back to null if the file cannot
-/// be created (recording must not fail because of logging).
-fn stderr_log(log: &std::path::Path) -> Stdio {
-    std::fs::File::create(log)
-        .map(Stdio::from)
-        .unwrap_or_else(|_| Stdio::null())
 }
 
 /// Duplicate `fd` onto child fd 3 in the forked child, before `exec`.

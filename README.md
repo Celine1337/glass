@@ -21,7 +21,7 @@ The trick to staying light: the Rust process is only an **orchestrator and a UI*
 - **Graceful stop** — SIGINT/EOS for GStreamer, `q` for FFmpeg, so the MP4 muxer finalizes a playable file every time.
 - **A genuinely minimal UI** — one rose record button, a tabular timer, a resolution chip, a folder row. Dark, calm, premium; keyboard driven (`Space` record/stop, `Esc` stop) with reduced-motion support and ~0 idle CPU.
 - **Tiny footprint** — the orchestrator never decodes a frame; the heavy lifting is delegated to the native backend.
-- **Tested** — 50 Rust unit tests on the pure helpers plus a 14-check `test.sh` (synthetic encoding only — your real screen is never touched). If a capture ever fails, the backend's stderr is kept in a `.log` next to the recording and the error message tells you what happened.
+- **Tested** — 53 Rust unit tests on the pure helpers plus a 14-check `test.sh` (synthetic encoding only — your real screen is never touched). If a capture ever fails, the exact command line and the backend's stderr are kept in a `.log` next to the recording and the error message tells you what happened.
 
 <img src="assets/section-stack.svg" width="830" alt="Tech stack">
 
