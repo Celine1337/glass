@@ -1,0 +1,21 @@
+{
+  "name": "Glass",
+  "kicker": "CELINE1337 · NATIVE RUST",
+  "tagline": "Tiny, beautiful screen recorder — full res + monitor Hz.",
+  "cmd": "cargo build --release",
+  "cmdw": 320,
+  "banner_icon": "rust",
+  "spec": "Rust · GStreamer · FFmpeg",
+  "core": [
+    ["rust", "Rust orchestrator"],
+    ["terminal", "egui dark UI"],
+    ["graph", "GStreamer / FFmpeg"],
+    ["shield", "PipeWire portal"]
+  ],
+  "quality": [
+    ["check", "39 unit tests"],
+    ["check", "14-check test.sh"],
+    ["clock", "HW encoding"],
+    ["shield", "MIT · no telemetry"]
+  ]
+}

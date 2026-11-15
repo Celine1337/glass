@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: glass-linux
+          - os: windows-latest
+            artifact: glass-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Package Linux (tar.gz)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          tar -czf dist/glass-linux-x86_64.tar.gz -C target/release glass
+
+      - name: Package Windows (glass.exe + bundled ffmpeg.exe)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          curl -L -o ffmpeg.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+          7z x ffmpeg.zip -offmpeg_extracted >/dev/null
+          FF="$(find ffmpeg_extracted -name ffmpeg.exe | head -1)"
+          cp "$FF" dist/ffmpeg.exe
+          cp target/release/glass.exe dist/glass.exe
+          cd dist
+          7z a glass-windows-x86_64.zip glass.exe ffmpeg.exe >/dev/null
+          rm -f glass.exe ffmpeg.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --title "Glass ${{ github.ref_name }}" \
+            --notes "Glass ${{ github.ref_name }} — native Rust screen recorder. Linux tar.gz + Windows zip (glass.exe + bundled ffmpeg.exe)."
