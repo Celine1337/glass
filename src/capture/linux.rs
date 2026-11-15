@@ -219,3 +219,47 @@ fn map_fd_to_child(cmd: &mut Command, fd: &OwnedFd) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spawn the real Wayland argv exactly like `finish_wayland` (same
+    /// builder, same pre_exec fd-3 mapping), with /dev/null standing in for
+    /// the portal remote. The pipeline must PARSE: runtime may fail on the
+    /// fake fd, but a syntax error means the argv itself is broken.
+    #[test]
+    fn spawned_wayland_argv_parses_without_syntax_error() {
+        let dir = std::env::temp_dir().join(format!("glass-Видео-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let out = dir.join("probe.mp4");
+        let args =
+            pipeline::gst_wayland_args(72, pipeline::PIPEWIRE_CHILD_FD, "x264enc", &out, false);
+        let mut cmd = Command::new(&args[0]);
+        cmd.args(&args[1..]);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let devnull = OwnedFd::from(std::fs::File::open("/dev/null").expect("open /dev/null"));
+        map_fd_to_child(&mut cmd, &devnull);
+        let mut child = cmd.spawn().expect("spawn gst-launch");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if child.try_wait().expect("try_wait").is_some() {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let output = child.wait_with_output().expect("wait");
+        let err = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !err.contains("syntax error") && !err.contains("синтаксическая ошибка"),
+            "gst-launch failed to parse the spawned argv: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

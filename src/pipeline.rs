@@ -72,7 +72,8 @@ fn gst_tail(a: &mut Vec<String>, encoder: &str, h264parse: bool, out: &Path) {
     a.push("!".to_string());
     a.push("mp4mux".to_string());
     a.push("!".to_string());
-    a.push(format!("filesink location={}", out.display()));
+    a.push("filesink".to_string());
+    a.push(format!("location={}", out.display()));
 }
 
 /// FFmpeg command for Windows: `gdigrab` by default, `ddagrab` (Desktop
@@ -174,7 +175,7 @@ mod tests {
     /// re-splits on whitespace — the app's spawned child does not.)
     fn assert_gst_tokens(argv: &[String]) {
         for t in argv {
-            if t.starts_with("filesink location=") {
+            if t.starts_with("location=") {
                 continue; // the path value itself may contain spaces
             }
             assert!(
@@ -194,6 +195,8 @@ mod tests {
         assert!(a.iter().any(|t| t == "x264enc"));
         assert!(a.iter().any(|t| t == "speed-preset=ultrafast"));
         assert!(a.iter().any(|t| t == "tune=zerolatency"));
+        assert!(a.iter().any(|t| t == "filesink"));
+        assert!(a.iter().any(|t| t == "location=/tmp/o.mp4"));
     }
 
     #[test]
